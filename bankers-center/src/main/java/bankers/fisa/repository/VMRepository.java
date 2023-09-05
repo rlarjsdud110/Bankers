@@ -19,6 +19,12 @@ public interface VMRepository extends JpaRepository<VM, VMckey>{
 	@Query(value = "SELECT t.* FROM vm AS t JOIN(SELECT vm_number, MAX(vm_create_date) AS date FROM vm GROUP BY vm_number) AS temp ON t.vm_number=temp.vm_number AND t.vm_create_date = temp.date WHERE t.vm_number = ?", nativeQuery = true)
 	VM findLatestVM(String vm_number);
 	
+	@Query(value = "SELECT * FROM vm WHERE vm_number = ?", nativeQuery = true)
+	List<VM> getLog(String vm_number);
+	
 	@Query(value = "SELECT MAX(vm_number) FROM vm", nativeQuery = true)
 	int getMAXNumber();
+	
+	@Query(value = "SELECT MAX(vm_number) FROM vm WHERE vm_number = ?", nativeQuery = true)
+	int getMAXNumber(String vm_number);
 }

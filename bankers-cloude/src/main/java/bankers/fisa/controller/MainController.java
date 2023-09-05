@@ -32,6 +32,90 @@ public class MainController {
 		return mv;
 	}
 	
+	@GetMapping("/vminfo/{vmnumber}")
+	public ModelAndView vminfoPage(@PathVariable String vmnumber) {
+		ModelAndView mv = new ModelAndView("vminfo");
+		
+		String createDate = new String();
+		String vmName = new String();
+		String vmCatal = new String();
+		String vmAddress = new String();
+		String vmState = new String();
+		
+		URI uri = UriComponentsBuilder.fromUriString("http://localhost:7070")
+				.path("/center/getlog")
+				.encode()
+				.build()
+				.toUri();
+			
+		MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
+		parameters.add("vmnumber", vmnumber);
+			
+		RestTemplate restTemplate = new RestTemplate();
+		ResponseEntity<String> responseEntity = restTemplate.postForEntity(uri, parameters, String.class);
+		
+		for(String log : responseEntity.getBody().toString().split(",")) {
+			String[] logInfo = log.split("_");
+			
+			createDate += logInfo[1] + "_";
+			vmName += logInfo[2] + "_";
+			vmCatal += logInfo[3] + "_";
+			vmAddress += logInfo[4] + "_";
+			vmState += logInfo[5] + "_";
+		}
+		
+		mv.addObject("createdate", createDate.substring(0, createDate.length() - 1));
+		mv.addObject("vmname", vmName.substring(0, vmName.length() - 1));
+		mv.addObject("vmcatal", vmCatal.substring(0, vmCatal.length() - 1));
+		mv.addObject("vmaddress", vmAddress.substring(0, vmAddress.length() - 1));
+		mv.addObject("vmstate", vmState.substring(0, vmState.length() - 1));
+		
+		return mv;
+	}
+	
+	@GetMapping("/loadingcheck/{vmnumber}")
+	public String loadingcheck(@PathVariable String vmnumber) {
+		
+		URI uri = UriComponentsBuilder.fromUriString("http://localhost:7070")
+				.path("/center/loadingcheck")
+				.encode()
+				.build()
+				.toUri();
+			
+		MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
+		parameters.add("vmnumber", vmnumber);
+			
+		RestTemplate restTemplate = new RestTemplate();
+		ResponseEntity<String> responseEntity = restTemplate.postForEntity(uri, parameters, String.class);
+		
+		return responseEntity.getBody().toString();
+	}
+	
+	@GetMapping("/vmmonitoring/{vmnumber}")
+	public String getVMMonitoringInfo(@PathVariable String vmnumber) {
+		
+		URI uri = UriComponentsBuilder.fromUriString("http://localhost:7070")
+		.path("/center/getvmmonitoringinfo")
+		.encode()
+		.build()
+		.toUri();
+	
+		MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
+		parameters.add("vmnumber", vmnumber);
+			
+		RestTemplate restTemplate = new RestTemplate();
+		ResponseEntity<String> responseEntity = restTemplate.postForEntity(uri, parameters, String.class);
+		
+		String[] vmInfo = responseEntity.getBody().toString().split("_");
+		
+		double d = Double.parseDouble(vmInfo[1]) * 1000;
+		d = Math.floor(d);
+		String vmcpu = (d / 10) + "%";
+		String vmram = vmLoadDecode(vmInfo[2], vmInfo[3]);
+		String vmstorage = vmLoadDecode(vmInfo[4], vmInfo[5]);
+		
+		return vmInfo[0] + "_" + vmcpu + "_" + vmram + "_" + vmstorage;
+	}
 	@GetMapping("/vmmonitoring")
 	public ModelAndView vmmonitoring(
 			HttpServletResponse response,
@@ -76,37 +160,25 @@ public class MainController {
 				vmram.add("PREPARING");
 				vmstorage.add("PREPARING");
 			}else if(vmInfo.length == 3) {
-				vmnumber.add("TOOL OFF");
+				vmnumber.add("TOOL-OFF");
 				vmname.add(vmInfo[0]);
-				vmcpu.add("TOOL OFF");
-				vmram.add("TOOL OFF");
-				vmstorage.add("TOOL OFF");
+				vmcpu.add("TOOL-OFF");
+				vmram.add("TOOL-OFF");
+				vmstorage.add("TOOL-OFF");
 			}else if(vmInfo.length == 4) {
-				vmnumber.add("POWER OFF");
+				vmnumber.add("POWER-OFF");
 				vmname.add(vmInfo[0]);
-				vmcpu.add("POWER OFF");
-				vmram.add("POWER OFF");
-				vmstorage.add("POWER OFF");
+				vmcpu.add("POWER-OFF");
+				vmram.add("POWER-OFF");
+				vmstorage.add("POWER-OFF");
 			}else {
 				vmname.add(vmInfo[0]);
 				vmnumber.add(vmInfo[1]);
+				
 				vmcpu.add(Integer.parseInt(vmInfo[2].substring(2, 4)) + "." + vmInfo[2].substring(4, 5) + "%");
+				vmram.add(vmLoadDecode(vmInfo[3], vmInfo[4]));
+				vmstorage.add(vmLoadDecode(vmInfo[5], vmInfo[6]));
 				
-				float totalram = Float.parseFloat(vmInfo[3]);
-				float useram = totalram - Float.parseFloat(vmInfo[4]);
-				float ramload = Math.round(useram / totalram * 1000);
-				
-				float ramh = Math.round((totalram / 1024) * 100);
-				
-				vmram.add((ramload / 10) + "%@" + (ramh / 100) + "GB");
-				
-				float totalstorage = Float.parseFloat(vmInfo[5]);
-				float usestorage = totalstorage - Float.parseFloat(vmInfo[6]);
-				float storageload = Math.round(usestorage / totalstorage * 1000);
-				
-				float storageh = Math.round((totalstorage / 1024) * 100);
-				
-				vmstorage.add((storageload / 10) + "%@" + (storageh / 100) + "GB");
 			}
 		}
 		
@@ -117,6 +189,16 @@ public class MainController {
 		mv.addObject("vmstorage", vmstorage);
 		
 		return mv;
+	}
+	
+	private String vmLoadDecode(String inputTotal, String inputUse) {
+		float total = Float.parseFloat(inputTotal);
+		float use = total - Float.parseFloat(inputUse);
+		float load = Math.round(use / total * 1000);
+		
+		float h = Math.round((total / 1024) * 100);
+		
+		return (load / 10) + "%@" + (h / 100) + "GB";
 	}
 	
 	@GetMapping("/vmupdate")
@@ -259,9 +341,8 @@ public class MainController {
 		parameters.add("catalType", catalType);
 		parameters.add("creater", id);
 		
-		RestTemplate restTemplate = new RestTemplate();
+    	RestTemplate restTemplate = new RestTemplate();
 		restTemplate.postForEntity(uri, parameters, String.class);
-		
 		mv.setViewName("redirect:/dashboard");
 		return mv;
 	}
@@ -340,6 +421,8 @@ public class MainController {
 	
 	private ModelAndView goVMDashboard(String id, ModelAndView mv) {
 		
+		mv.addObject("id", id);
+		mv.addObject("norecord", "false");
 		mv.setViewName("vmdashboard");
 		ArrayList<String> vmnumber = new ArrayList<String>();
 		ArrayList<String> vmcreatedate = new ArrayList<String>();
@@ -361,6 +444,7 @@ public class MainController {
 		RestTemplate restTemplate = new RestTemplate();
 		ResponseEntity<String> responseEntity = restTemplate.postForEntity(uri, parameters, String.class);
 		if(responseEntity.getBody() == null) {
+			mv.addObject("norecord", "true");
 			return mv;
 		}
 		
@@ -375,7 +459,6 @@ public class MainController {
 			vmstate.add(vmInfo[5]);
 			vmcustid.add(getCustEmp(vmInfo[6]).split("_")[3]);	
 		}
-		
 		mv.addObject("vmnumber", vmnumber);
 		mv.addObject("vmcreatedate", vmcreatedate);
 		mv.addObject("vmname", vmname);

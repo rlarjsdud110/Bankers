@@ -1,9 +1,14 @@
 package bankers.fisa.controller;
 
+
+import org.springframework.web.bind.annotation.RestController;
+
+
 import java.net.URI;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.util.Date;
+
 import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -13,6 +18,9 @@ import org.springframework.util.MultiValueMap;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+
+
+
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -43,6 +51,70 @@ public class MainController {
 	private final VMRepository vmRepository = null;
 	@Autowired
 	private final VMAlarmRepository vmAlarmRepository = null;
+	
+	
+	@PostMapping("/loadingcheck")
+	public String loadingcheck(@RequestParam("vmnumber") String vmnumber) {
+		try {
+			vmRepository.getMAXNumber(vmnumber);
+			return "false";
+		} catch (Exception e) {
+			return "true";
+		}
+	}
+	
+	@PostMapping("/getvmmonitoringinfo")
+	public String getVMMonitoringInfo(@RequestParam("vmnumber") String vmnumber) {
+		
+		VM vm = vmRepository.findLatestVM(vmnumber);
+		
+		if(vm.getVm_state().equals("ON")) {
+			String result  = new String();
+			String cpuload = null;
+			String ramtotal = null;
+			String ramfree = null;
+			String storagetotal = null;
+			String storagefree = null;
+			
+			URI uri = UriComponentsBuilder.fromUriString("http://localhost:8867")
+					.path("/getvmaddress")
+					.encode()
+					.build()
+					.toUri();
+			
+			MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
+			parameters.add("vmId", ""+vm.getVmckey().getVm_number());
+			
+			RestTemplate restTemplate = new RestTemplate();
+			ResponseEntity<String> responseEntity = restTemplate.postForEntity(uri, parameters, String.class);
+			
+			String address = responseEntity.getBody().toString();
+			
+			if(address.equals("preparing")) {
+				return vm.getVm_name() + "_PREPARING";
+			}
+			cpuload = getvmspec(address, "process.cpu.load");
+			if(cpuload.equals("monitoring tool off")) {
+				return vm.getVm_name() + "_TOOL_OFF";
+			}
+			
+			ramtotal = getvmspec(address, "process.ram.total");
+			ramfree = getvmspec(address, "process.ram.free");
+			storagetotal = getvmspec(address, "process.storage.total");
+			storagefree = getvmspec(address, "process.storage.free");
+			
+			result += vm.getVm_name() + "_" + 
+					cpuload + "_" + 
+					ramtotal + "_" + 
+					ramfree + "_" + 
+					storagetotal + "_" + 
+					storagefree;
+			
+			return result;
+		}else{
+			return vm.getVm_name() + "_OFF_OFF_OFF,";
+		}
+	}
 	
 	@PostMapping("/vmmonitoringlist")
 	public String vmmonitoringlist(@RequestParam("id") String id) {
@@ -147,6 +219,16 @@ public class MainController {
 		vmRepository.save(vm);
 	}
 	
+	@PostMapping("/getlog")
+	public String getlog(@RequestParam("vmnumber") String vmnumber) {
+		String result = new String();
+		for(VM vm : vmRepository.getLog(vmnumber)) {
+			result += vm.toString() + ",";
+		};
+		return result.substring(0, result.length() - 1);
+	}
+	
+	
 	@PostMapping("/getvmalarm")
 	public String getvmalarm(@RequestParam("vmnumber") String vmnumber) {
 		return vmAlarmRepository.findVMNumber(vmnumber).toString();
@@ -232,13 +314,38 @@ public class MainController {
 		if(catalType.equals("C") || catalType.equals("D") || catalType.equals("E")) {
 			return "false";
 		}
-		
 		try {
 			int custEmpNumber = custEmpRepository.findById(creater).get().getCust_emp_number();
 			
 			DateFormat dateFormat = new SimpleDateFormat("YYYY-MM-dd HH:mm:ss");
 			String date = dateFormat.format(new Date());
 
+			int vmAlarmMaxNumber = 0;
+			try {
+				vmAlarmMaxNumber = vmAlarmRepository.getMAXNumber() + 1;
+			} catch (Exception e) {
+				vmAlarmMaxNumber = 1;
+			}
+					
+			int tempnumber = (int)(Math.random()*1000) + 90000;
+			
+			VMckey vmckey = new VMckey(tempnumber, date);
+			VM newVM = new VM(vmckey, vmname, catalType, "preparing", "OFF", custEmpNumber);
+			
+			VMAlarm vmalarm = new VMAlarm(
+					vmAlarmMaxNumber, tempnumber,
+					50, 90, 50, 90, 50, 90);
+			
+			vmRepository.save(newVM);
+			vmAlarmRepository.save(new VMAlarm(
+					vmAlarmMaxNumber, tempnumber,
+					50, 90, 50, 90, 50, 90));
+			
+			VMCreator vmcreator = new VMCreator(newVM, vmalarm, tempnumber);
+			
+			vmcreator.start();
+			
+			/*
 			URI uri = UriComponentsBuilder.fromUriString("http://localhost:8867")
 					.path("/createVM")
 					.encode()
@@ -255,14 +362,17 @@ public class MainController {
 			String responseNumber = responseEntity.getBody().toString().split("-")[1];
 			int vmnumber = Integer.parseInt(responseNumber.substring(0, responseNumber.length()-1));
 			
-			VMckey vmckey = new VMckey(vmnumber, date);
-			VM newVM = new VM(vmckey, vmname, catalType, "preparing", "OFF", custEmpNumber);
+			vmRepository.deleteById(newVM.getVmckey());
+			vmAlarmRepository.deleteById(Long.valueOf(tempnumber));
+			
+			vmckey = new VMckey(vmnumber, date);
+			newVM = new VM(vmckey, vmname, catalType, "preparing", "OFF", custEmpNumber);
 			
 			vmRepository.save(newVM);
 			vmAlarmRepository.save(new VMAlarm(
-					vmAlarmRepository.getMAXNumber() + 1, vmnumber,
+					vmAlarmMaxNumber, vmnumber,
 					50, 90, 50, 90, 50, 90));
-			
+			*/
 			return "true";
 		} catch (Exception e) {
 			return "false";
@@ -444,5 +554,44 @@ public class MainController {
 		    return custList.get(0).toString();
 	    }
 	    return null;
+	}
+	
+	public class VMCreator extends Thread {
+		private VM vm;
+		private VMAlarm vmalarm;
+		private int tempnumber;
+		
+		public VMCreator(VM vm, VMAlarm vmalarm, int tempnumber) {
+			this.vm = vm;
+			this.vmalarm = vmalarm;
+			this.tempnumber = tempnumber;
+		}
+		
+	    public void run() {
+	    	URI uri = UriComponentsBuilder.fromUriString("http://localhost:8867")
+					.path("/createVM")
+					.encode()
+					.build()
+					.toUri();
+			MultiValueMap<String, String> parameters = new LinkedMultiValueMap<>();
+			parameters.add("vmname", vm.getVm_name()+":"+((int)(Math.random()*1000)));
+			parameters.add("catalType", vm.getVm_catal_type());
+			
+			
+			RestTemplate restTemplate = new RestTemplate();
+			ResponseEntity<String> responseEntity = restTemplate.postForEntity(uri, parameters, String.class);
+			String responseNumber = responseEntity.getBody().toString().split("-")[1];
+			int vmnumber = Integer.parseInt(responseNumber.substring(0, responseNumber.length()-1));
+			vmRepository.deleteById(vm.getVmckey());
+			vmAlarmRepository.deleteById(Long.valueOf(tempnumber));
+			VMckey vmckey = new VMckey(vmnumber, vm.getVmckey().getVm_create_date());
+			vm = new VM(vmckey, vm.getVm_name(), vm.getVm_catal_type(), "preparing", "OFF", vm.getCust_emp_number());
+			
+			vmRepository.save(vm);
+			vmAlarmRepository.save(new VMAlarm(
+					vmalarm.getAlarm_number(), vmnumber,
+					50, 90, 50, 90, 50, 90));
+			
+	    }
 	}
 }
